@@ -14,7 +14,7 @@ dependencies = [
   "litellm>=1.101",
   "langgraph>=1.2",
   "langsmith>=0.13",
-  "sqlalchemy>=2.0",
+  "sqlalchemy>=2.1",
 ]
 
 [project.optional-dependencies]

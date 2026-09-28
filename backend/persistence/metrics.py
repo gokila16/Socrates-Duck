@@ -272,7 +272,7 @@ def _counts_by(
     return {value: count for value, count in rows if value is not None}
 
 
-def _count(db: DbSession, statement: Select[tuple[int]]) -> int:
+def _count(db: DbSession, statement: Select[int]) -> int:
     return db.execute(statement).scalar_one()
 
 
