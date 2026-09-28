@@ -1,0 +1,34 @@
+# OS and editor
+.DS_Store
+.vscode/settings.json
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Node / extension build output
+node_modules/
+extension/out/
+extension/media/
+*.vsix
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local data
+backend/.data/
+*.sqlite
+*.sqlite3
+*.db
+
+# Local test material
+samples/
+backend/check_hint.py

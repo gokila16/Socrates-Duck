@@ -1,0 +1,77 @@
+{
+  "name": "socrates-duck",
+  "displayName": "Socrates' Duck",
+  "description": "A Socratic coding assistant that guides you with progressive hints instead of answers.",
+  "version": "0.0.1",
+  "publisher": "socrates-duck",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.136.0"
+  },
+  "categories": [
+    "Education"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "socratesDuck.open",
+        "title": "Open Panel",
+        "category": "Socrates' Duck"
+      },
+      {
+        "command": "socratesDuck.startFromSelection",
+        "title": "Socrates' Duck: Start from selection"
+      }
+    ],
+    "configuration": {
+      "title": "Socrates' Duck",
+      "properties": {
+        "socratesDuck.backendUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8000",
+          "markdownDescription": "Where the local Socrates' Duck backend is listening. Only loopback addresses (`127.0.0.1`, `localhost`, `::1`) are accepted; anything else falls back to the default.",
+          "scope": "window"
+        }
+      }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "socratesDuck.startFromSelection",
+          "when": "editorHasSelection",
+          "group": "z_commands"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "build:prod": "node esbuild.mjs --production",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p webview/tsconfig.json",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "vscode:prepublish": "npm run typecheck && npm run lint && npm run test && npm run build:prod"
+  },
+  "dependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.19.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/vscode": "1.136.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.10.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^5.0.1"
+  }
+}
