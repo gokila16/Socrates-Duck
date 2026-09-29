@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   attachmentKey,
   isWebviewToHost,
+  MAX_OBSERVATION_CHARS,
   MAX_QUESTION_CHARS,
   type CodeContext,
 } from "../shared/protocol";
@@ -99,14 +100,41 @@ describe("isWebviewToHost, for the messages that reach the backend", () => {
   });
 
   it("accepts both ways a session can end", () => {
-    expect(isWebviewToHost({ type: "endSession", status: "completed", outcome: "resolved" })).toBe(
-      true,
-    );
-    expect(isWebviewToHost({ type: "endSession", status: "abandoned", outcome: null })).toBe(true);
+    expect(
+      isWebviewToHost({
+        type: "endSession",
+        status: "completed",
+        outcome: "resolved",
+        resolution: "yes",
+      }),
+    ).toBe(true);
+    expect(
+      isWebviewToHost({
+        type: "endSession",
+        status: "abandoned",
+        outcome: null,
+        resolution: "skipped",
+      }),
+    ).toBe(true);
   });
 
   it("rejects an unknown end status", () => {
-    expect(isWebviewToHost({ type: "endSession", status: "paused", outcome: null })).toBe(false);
+    expect(
+      isWebviewToHost({ type: "endSession", status: "paused", outcome: null, resolution: "no" }),
+    ).toBe(false);
+  });
+
+  it.each(["not_asked", "maybe", undefined])(
+    "rejects the resolution %s, which the developer cannot pick",
+    (resolution) => {
+      expect(
+        isWebviewToHost({ type: "endSession", status: "completed", outcome: null, resolution }),
+      ).toBe(false);
+    },
+  );
+
+  it("accepts a request to show the profile", () => {
+    expect(isWebviewToHost({ type: "showProfile" })).toBe(true);
   });
 });
 
@@ -124,5 +152,21 @@ describe("isWebviewToHost, for a question about a hint", () => {
     ["an overlong question", { hintNumber: 1, question: "x".repeat(MAX_QUESTION_CHARS + 1) }],
   ])("rejects %s", (_name, fields) => {
     expect(isWebviewToHost({ type: "askQuestion", ...fields })).toBe(false);
+  });
+});
+
+describe("isWebviewToHost, for a note on what the developer saw", () => {
+  it("accepts a note", () => {
+    expect(
+      isWebviewToHost({ type: "shareObservation", observation: "It printed []." }),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["a blank note", "   "],
+    ["an overlong note", "x".repeat(MAX_OBSERVATION_CHARS + 1)],
+    ["a non-string note", 42],
+  ])("rejects %s", (_name, observation) => {
+    expect(isWebviewToHost({ type: "shareObservation", observation })).toBe(false);
   });
 });

@@ -13,6 +13,7 @@ import {
   type HostToWebview,
   type Outcome,
   type PendingAction,
+  type Resolution,
   type WebviewToHost,
 } from "../shared/protocol";
 import {
@@ -25,6 +26,16 @@ import {
   resolveBackendUrl,
 } from "./backend";
 import { buildCodeContext, shiftedSelection } from "./capture";
+import { assessProfile } from "./profile/policy";
+import {
+  buildSessionRecord,
+  startTally,
+  withHint,
+  withQuestion,
+  withReport,
+  type SessionTally,
+} from "./profile/record";
+import type { ProfileStore } from "./profile/store";
 import { getTargetEditor, snapshotDocument, snapshotEditor } from "./editor";
 import { parseTraceback, referencedFiles } from "./traceback";
 import { resolveReferencedFiles } from "./workspaceFiles";
@@ -36,6 +47,9 @@ const MAX_ERROR_TEXT_LENGTH = 20_000;
 function blankToUndefined(value: string): string | undefined {
   return value.trim() === "" ? undefined : value;
 }
+
+/** What a command asked the panel to do once its webview is ready. */
+type PanelRequest = DirectCaptureSource | "profile";
 
 /** A file offered to the developer, kept out of the webview's reach. */
 interface OfferedFile {
@@ -68,9 +82,15 @@ export class SocraticPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
 
-  private pendingCapture: DirectCaptureSource | undefined;
+  private pendingCapture: PanelRequest | undefined;
 
   private sessionId: string | undefined;
+
+  /** True while Finish or Give up is on its way, so closing the panel doesn't record it twice. */
+  private ending = false;
+
+  /** Counts for the local profile; only derived numbers, never content. */
+  private tally: SessionTally | undefined;
 
   private readonly offeredFiles = new Map<string, OfferedFile>();
 
@@ -80,7 +100,8 @@ export class SocraticPanel {
 
   public static createOrShow(
     extensionUri: vscode.Uri,
-    capture?: DirectCaptureSource,
+    profile: ProfileStore,
+    capture?: PanelRequest,
   ): void {
     const existing = SocraticPanel.current;
 
@@ -106,13 +127,14 @@ export class SocraticPanel {
       },
     );
 
-    SocraticPanel.current = new SocraticPanel(panel, extensionUri, capture);
+    SocraticPanel.current = new SocraticPanel(panel, extensionUri, profile, capture);
   }
 
   private constructor(
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
-    pendingCapture: DirectCaptureSource | undefined,
+    private readonly profile: ProfileStore,
+    pendingCapture: PanelRequest | undefined,
   ) {
     this.panel = panel;
     this.pendingCapture = pendingCapture;
@@ -154,11 +176,19 @@ export class SocraticPanel {
       case "askQuestion":
         this.run("ask", () => this.ask(message.hintNumber, message.question));
         return;
+      case "shareObservation":
+        this.run("observe", () => this.shareObservation(message.observation));
+        return;
       case "reportOutcome":
         this.run("report", () => this.reportOutcome(message));
         return;
       case "endSession":
-        this.run("end", () => this.endSession(message.status, message.outcome));
+        this.run("end", () =>
+          this.endSession(message.status, message.outcome, message.resolution),
+        );
+        return;
+      case "showProfile":
+        this.showProfile(false);
         return;
     }
   }
@@ -191,10 +221,15 @@ export class SocraticPanel {
     });
 
     this.sessionId = started.id;
+    this.tally = startTally(
+      Date.now(),
+      blankToUndefined(message.evidence) !== undefined,
+    );
     this.post({ type: "sessionStarted", session: started.session });
 
     const hint = await requestHint(baseUrl, started.id, "normal", this.reportStep);
 
+    this.count((tally) => withHint(tally, "normal", hint.level));
     this.post({ type: "hintReceived", hint });
   }
 
@@ -202,6 +237,7 @@ export class SocraticPanel {
     const sessionId = this.requireSession();
     const hint = await requestHint(this.backendUrl(), sessionId, kind, this.reportStep);
 
+    this.count((tally) => withHint(tally, kind, hint.level));
     this.post({ type: "hintReceived", hint });
   }
 
@@ -215,7 +251,34 @@ export class SocraticPanel {
       this.reportStep,
     );
 
+    this.count(withQuestion);
     this.post({ type: "answerReceived", answer });
+  }
+
+  /**
+   * A note on what the developer saw after the last hint. Sent as an attempt
+   * with no outcome and no code, so nothing is read from the editor.
+   */
+  private async shareObservation(observation: string): Promise<void> {
+    const sessionId = this.requireSession();
+    const session = await recordAttempt(this.backendUrl(), sessionId, {
+      reasoning: observation,
+      evidence: undefined,
+      outcome: undefined,
+      codeContexts: undefined,
+    });
+
+    this.post({ type: "attemptRecorded", session, hintFollows: true });
+
+    const hint = await requestHint(
+      this.backendUrl(),
+      sessionId,
+      "normal",
+      this.reportStep,
+    );
+
+    this.count((tally) => withHint(tally, "normal", hint.level));
+    this.post({ type: "hintReceived", hint });
   }
 
   private async reportOutcome(
@@ -228,6 +291,8 @@ export class SocraticPanel {
       outcome: message.outcome,
       codeContexts: await this.rereadAttachments(),
     });
+
+    this.count((tally) => withReport(tally, message.outcome));
 
     const hintFollows = message.outcome !== "resolved";
     this.post({ type: "attemptRecorded", session, hintFollows });
@@ -243,6 +308,7 @@ export class SocraticPanel {
       this.reportStep,
     );
 
+    this.count((tally) => withHint(tally, "normal", hint.level));
     this.post({ type: "hintReceived", hint });
   }
 
@@ -310,17 +376,78 @@ export class SocraticPanel {
   private async endSession(
     status: "completed" | "abandoned",
     outcome: Outcome | null,
+    resolution: Resolution,
   ): Promise<void> {
     const sessionId = this.requireSession();
-    const session = await completeSession(
-      this.backendUrl(),
-      sessionId,
-      status,
-      outcome,
+    this.ending = true;
+
+    try {
+      const session = await completeSession(
+        this.backendUrl(),
+        sessionId,
+        status,
+        outcome,
+      );
+
+      this.sessionId = undefined;
+      this.post({ type: "sessionEnded", session });
+    } finally {
+      this.ending = false;
+    }
+
+    await this.recordSession(status, resolution);
+  }
+
+  /** Updates the profile view if it is open, after the stored profile changed. */
+  public static profileChanged(): void {
+    SocraticPanel.current?.showProfile(true);
+  }
+
+  private count(update: (tally: SessionTally) => SessionTally): void {
+    if (this.tally !== undefined) {
+      this.tally = update(this.tally);
+    }
+  }
+
+  /** Adds the finished session to the local profile; a failure only shows in the status bar. */
+  private async recordSession(
+    status: "completed" | "abandoned",
+    resolution: Resolution,
+  ): Promise<void> {
+    const tally = this.tally;
+    this.tally = undefined;
+
+    if (tally === undefined) {
+      return;
+    }
+
+    const saved = await this.profile.append(
+      buildSessionRecord(tally, Date.now(), status, resolution),
     );
 
-    this.sessionId = undefined;
-    this.post({ type: "sessionEnded", session });
+    if (!saved) {
+      vscode.window.setStatusBarMessage(
+        "Socrates' Duck: couldn't update your local profile.",
+        5_000,
+      );
+    }
+  }
+
+  private showProfile(refreshOnly: boolean): void {
+    try {
+      const loaded = this.profile.load();
+
+      this.post({
+        type: "profile",
+        profile: assessProfile(loaded.sessions, loaded.notice),
+        refreshOnly,
+      });
+    } catch {
+      this.post({
+        type: "captureFailed",
+        reason: "Your profile couldn't be shown. Your session is not affected.",
+      });
+    }
   }
 
   private requireSession(): string {
@@ -412,7 +539,12 @@ export class SocraticPanel {
     }
 
     this.pendingCapture = undefined;
-    this.captureContext(pending);
+
+    if (pending === "profile") {
+      this.showProfile(false);
+    } else {
+      this.captureContext(pending);
+    }
   }
 
   private captureContext(source: DirectCaptureSource): void {
@@ -493,7 +625,8 @@ export class SocraticPanel {
   private abandonOpenSession(): void {
     const sessionId = this.sessionId;
 
-    if (sessionId === undefined) {
+    // An end already on its way will finish and record the developer's own answer.
+    if (sessionId === undefined || this.ending) {
       return;
     }
 
@@ -503,5 +636,7 @@ export class SocraticPanel {
       () => {
       },
     );
+    this.recordSession("abandoned", "not_asked").catch(() => {
+    });
   }
 }

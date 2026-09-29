@@ -349,7 +349,7 @@ async def test_later_hints_see_earlier_ones_so_they_do_not_repeat_them() -> None
 
     request = last_request_of("hint", model.requests)
     assert "Print each student's scores" in _fenced(request, "previous hints")
-    assert "take a different angle" in request.system.lower()
+    assert "build on the last hint" in request.system.lower()
 
 
 async def test_attempts_reach_the_analysis_with_their_outcome() -> None:
@@ -825,3 +825,30 @@ async def test_a_missing_classification_also_falls_back() -> None:
 
     assert session.diagnosis is not None
     assert session.diagnosis.reasoning_progress is ReasoningProgress.UNCHANGED
+
+
+async def test_a_note_on_what_they_saw_is_the_starting_point_for_the_next_hint() -> None:
+    model = RespondingProvider(canned_model)
+    session = _session()
+
+    await next_hint(session, HintKind.NORMAL, _context(model))
+    session.record_attempt(Attempt(reasoning="The list for alan is empty."))
+    await next_hint(session, HintKind.NORMAL, _context(model))
+
+    request = last_request_of("hint", model.requests)
+    assert "wrote down what they saw" in request.system
+    assert "none (a note on what they checked and saw)" in _fenced(request, "attempt 1")
+
+
+@pytest.mark.parametrize("outcome", [Outcome.STILL_STUCK, Outcome.DIFFERENT_ERROR])
+async def test_a_reported_outcome_is_not_treated_as_a_note(outcome: Outcome) -> None:
+    model = RespondingProvider(canned_model)
+    session = _session()
+
+    await next_hint(session, HintKind.NORMAL, _context(model))
+    session.record_attempt(Attempt(reasoning="Tried a fix.", outcome=outcome))
+    await next_hint(session, HintKind.NORMAL, _context(model))
+
+    assert (
+        "wrote down what they saw" not in last_request_of("hint", model.requests).system
+    )

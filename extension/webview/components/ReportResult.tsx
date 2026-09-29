@@ -1,12 +1,23 @@
 import { useState } from "react";
 
-import type { Outcome, PendingAction } from "../../shared/protocol";
+import type {
+  ChosenResolution,
+  Outcome,
+  PendingAction,
+} from "../../shared/protocol";
 import { Field } from "./Field";
+import { ResolutionQuestion } from "./ResolutionQuestion";
+
+type EndStatus = "completed" | "abandoned";
 
 interface ReportResultProps {
   pending: PendingAction | null;
   onReport: (outcome: Outcome, reasoning: string, evidence: string) => void;
-  onEnd: (status: "completed" | "abandoned", outcome: Outcome | null) => void;
+  onEnd: (
+    status: EndStatus,
+    outcome: Outcome | null,
+    resolution: ChosenResolution,
+  ) => void;
 }
 
 const OUTCOMES: { value: Outcome; label: string; hint: string }[] = [
@@ -32,6 +43,7 @@ export function ReportResult({ pending, onReport, onEnd }: ReportResultProps) {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [reasoning, setReasoning] = useState("");
   const [evidence, setEvidence] = useState("");
+  const [ending, setEnding] = useState<EndStatus | null>(null);
 
   const busy = pending !== null;
   const ready = outcome !== null && reasoning.trim() !== "";
@@ -46,6 +58,16 @@ export function ReportResult({ pending, onReport, onEnd }: ReportResultProps) {
     setReasoning("");
     setEvidence("");
     setOutcome(null);
+  }
+
+  if (ending !== null) {
+    return (
+      <ResolutionQuestion
+        busy={busy}
+        onAnswer={(resolution) => onEnd(ending, outcome, resolution)}
+        onBack={() => setEnding(null)}
+      />
+    );
   }
 
   return (
@@ -84,7 +106,7 @@ export function ReportResult({ pending, onReport, onEnd }: ReportResultProps) {
               type="button"
               className="button"
               disabled={busy}
-              onClick={() => onEnd("completed", "resolved")}
+              onClick={() => onEnd("completed", "resolved", "yes")}
             >
               Finish session
             </button>
@@ -121,7 +143,7 @@ export function ReportResult({ pending, onReport, onEnd }: ReportResultProps) {
               type="button"
               className="button button--secondary"
               disabled={busy}
-              onClick={() => onEnd("completed", outcome)}
+              onClick={() => setEnding("completed")}
             >
               Finish session
             </button>
@@ -129,7 +151,7 @@ export function ReportResult({ pending, onReport, onEnd }: ReportResultProps) {
               type="button"
               className="button button--ghost"
               disabled={busy}
-              onClick={() => onEnd("abandoned", outcome)}
+              onClick={() => setEnding("abandoned")}
             >
               Give up on this one
             </button>

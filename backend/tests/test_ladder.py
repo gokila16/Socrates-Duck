@@ -17,6 +17,7 @@ from domain.models import (
 )
 from policies.ladder import (
     LADDER,
+    MAX_HINTS_PER_RUNG,
     NO_BUG_CEILING,
     STUCK_LEVEL,
     ladder_restarted,
@@ -366,3 +367,74 @@ def test_with_no_bug_found_the_lower_rungs_work_as_usual() -> None:
     assert select_level(session, NORMAL, None, bug_found=False) == 1
     _give(session, 1)
     assert select_level(session, STRONGER, None, bug_found=False) == 2
+
+
+# "Another hint" never circles: at most MAX_HINTS_PER_RUNG on a rung, then up.
+
+
+def test_another_hint_steps_up_after_two_on_the_same_rung() -> None:
+    session = _session()
+    _give(session, 2)
+    _give(session, 2)
+
+    assert MAX_HINTS_PER_RUNG == 2
+    assert select_level(session, NORMAL, None) == 3
+
+
+def test_a_note_on_what_they_saw_does_not_reset_the_count() -> None:
+    """Sharing an observation is an attempt with no outcome."""
+    session = _session()
+    _give(session, 2)
+    _give(session, 2)
+    _report(session, None)
+
+    assert select_level(session, NORMAL, None) == 3
+
+
+def test_only_hints_in_a_row_on_this_rung_count() -> None:
+    session = _session()
+    _give(session, 2)
+    _give(session, 3, STRONGER)
+
+    assert select_level(session, NORMAL, None) == 3
+
+
+def test_hints_from_before_a_restart_do_not_count() -> None:
+    session = _session()
+    _give(session, 1)
+    _report(session, Outcome.DIFFERENT_ERROR)
+    _give(session, select_level(session, NORMAL, None))
+
+    assert session.hints[-1].level == 1
+    assert select_level(session, NORMAL, None) == 1
+
+
+def test_a_still_stuck_hold_still_applies_after_two_hints() -> None:
+    """Reports keep their own rule; the cap is for asking again with nothing new."""
+    session = _session()
+    _give(session, 3)
+    _give(session, 3)
+    _report(session, Outcome.STILL_STUCK)
+
+    assert select_level(session, NORMAL, CLOSER) == 3
+
+
+def test_the_step_up_respects_the_no_bug_ceiling() -> None:
+    session = _session()
+    _give(session, NO_BUG_CEILING)
+    _give(session, NO_BUG_CEILING)
+
+    assert select_level(session, NORMAL, None, bug_found=False) == NO_BUG_CEILING
+
+
+def test_pressing_another_hint_alone_reaches_the_top() -> None:
+    session = _session()
+
+    for _ in range(MAX_HINT_LEVEL * MAX_HINTS_PER_RUNG):
+        _give(session, select_level(session, NORMAL, None))
+
+    levels = [hint.level for hint in session.hints]
+    assert levels[-1] == MAX_HINT_LEVEL
+    assert all(
+        levels.count(level) <= MAX_HINTS_PER_RUNG for level in range(1, MAX_HINT_LEVEL)
+    )

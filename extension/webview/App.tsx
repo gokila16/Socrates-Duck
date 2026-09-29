@@ -3,16 +3,19 @@ import { useEffect, useReducer, useState } from "react";
 import {
   attachmentKey,
   MAX_ATTACHMENTS,
+  type ChosenResolution,
   type CodeContext,
   type FileCandidate,
   type HintKind,
   type HostToWebview,
   type Outcome,
+  type ProfileView,
 } from "../shared/protocol";
 import { Attachments } from "./components/Attachments";
 import { ErrorEvidence } from "./components/ErrorEvidence";
 import { Field } from "./components/Field";
 import { Hints } from "./components/Hints";
+import { Profile } from "./components/Profile";
 import { ReportResult } from "./components/ReportResult";
 import {
   conversationReducer,
@@ -77,6 +80,7 @@ export function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [exception, setException] = useState<string | undefined>(undefined);
   const [errors, setErrors] = useState<string[]>([]);
+  const [profile, setProfile] = useState<ProfileView | null>(null);
 
   const [analyzedText, setAnalyzedText] = useState<string | null>(null);
 
@@ -150,6 +154,13 @@ export function App() {
           dispatch({ type: "requestFailed", reason: message.reason });
           return;
 
+        case "profile":
+          // A refresh only updates a profile that is already open.
+          setProfile((current) =>
+            message.refreshOnly && current === null ? null : message.profile,
+          );
+          return;
+
         case "errorAnalyzed":
           setCandidates(message.candidates);
           setSelectedIds(message.candidates.map((candidate) => candidate.id));
@@ -210,6 +221,12 @@ export function App() {
     vscodeApi.postMessage({ type: "askQuestion", hintNumber, question });
   }
 
+  function shareObservation(observation: string): void {
+    beginAction();
+    dispatch({ type: "requested", action: "observe" });
+    vscodeApi.postMessage({ type: "shareObservation", observation });
+  }
+
   function reportOutcome(
     outcome: Outcome,
     reasoning: string,
@@ -222,9 +239,10 @@ export function App() {
   function endSession(
     status: "completed" | "abandoned",
     outcome: Outcome | null,
+    resolution: ChosenResolution,
   ): void {
     dispatch({ type: "requested", action: "end" });
-    vscodeApi.postMessage({ type: "endSession", status, outcome });
+    vscodeApi.postMessage({ type: "endSession", status, outcome, resolution });
   }
 
   function toggleCandidate(id: string): void {
@@ -246,6 +264,15 @@ export function App() {
         <p className="panel__tagline">
           Progressive hints that leave the reasoning to you.
         </p>
+        {profile === null && (
+          <button
+            type="button"
+            className="button button--ghost button--small"
+            onClick={() => vscodeApi.postMessage({ type: "showProfile" })}
+          >
+            Your profile
+          </button>
+        )}
       </header>
 
       {errors.map((message) => (
@@ -260,109 +287,117 @@ export function App() {
         </p>
       )}
 
-      {conversation.phase === "draft" ? (
-        <>
-          <section className="step">
-            <Field
-              label="What's going wrong?"
-              hint="Say what happens and, if you have one, your guess why. A rough guess is fine."
-              value={draft.problem}
-              onChange={(problem) =>
-                setDraft((current) => ({ ...current, problem }))
-              }
-            />
-          </section>
+      {profile !== null && (
+        <Profile profile={profile} onClose={() => setProfile(null)} />
+      )}
 
-          <ErrorEvidence
-            value={draft.errorText}
-            onChange={(errorText) =>
-              setDraft((current) => ({ ...current, errorText }))
-            }
-            onAnalyze={analyzeError}
-            analyzed={analyzedText !== null}
-            stale={candidatesAreStale}
-            exception={exception}
-            candidates={candidates}
-            selectedIds={selectedIds}
-            onToggle={toggleCandidate}
-            onAttach={attachSelected}
-            atCapacity={atCapacity}
-          />
-
-          <Attachments
-            attachments={draft.attachments}
-            atCapacity={atCapacity}
-            onRemove={(key) =>
-              setDraft((current) => ({
-                ...current,
-                attachments: current.attachments.filter(
-                  (attachment) => attachmentKey(attachment) !== key,
-                ),
-              }))
-            }
-            onCaptureSelection={() => requestCapture("selection")}
-            onCaptureFile={() => requestCapture("file")}
-          />
-
-          <section className="step">
-            <div className="step__actions">
-              <button
-                type="button"
-                className="button"
-                disabled={blocker !== null || busy}
-                onClick={startSession}
-              >
-                {busy ? "Working…" : "Get my first hint"}
-              </button>
-            </div>
-
-            {blocker !== null && <p className="step__hint">{blocker}</p>}
-          </section>
-        </>
-      ) : (
-        <>
-          <Hints
-            hints={conversation.hints}
-            answers={conversation.answers}
-            pending={conversation.pending}
-            step={conversation.step}
-            finished={finished}
-            onRequest={requestHint}
-            onAsk={askQuestion}
-          />
-
-          {finished ? (
+      {/* Hidden, not unmounted, so half-typed text survives a look at the profile. */}
+      <div className="panel__view" hidden={profile !== null}>
+        {conversation.phase === "draft" ? (
+          <>
             <section className="step">
-              <h2 className="step__title">
-                {conversation.session?.status === "completed"
-                  ? "Session complete"
-                  : "Session ended"}
-              </h2>
-              <p className="step__hint">
-                {conversation.hints.length}{" "}
-                {conversation.hints.length === 1 ? "hint" : "hints"}, highest
-                level {highestLevel(conversation.hints)} of 8.
-              </p>
+              <Field
+                label="What's going wrong?"
+                hint="Say what happens and, if you have one, your guess why. A rough guess is fine."
+                value={draft.problem}
+                onChange={(problem) =>
+                  setDraft((current) => ({ ...current, problem }))
+                }
+              />
+            </section>
 
+            <ErrorEvidence
+              value={draft.errorText}
+              onChange={(errorText) =>
+                setDraft((current) => ({ ...current, errorText }))
+              }
+              onAnalyze={analyzeError}
+              analyzed={analyzedText !== null}
+              stale={candidatesAreStale}
+              exception={exception}
+              candidates={candidates}
+              selectedIds={selectedIds}
+              onToggle={toggleCandidate}
+              onAttach={attachSelected}
+              atCapacity={atCapacity}
+            />
+
+            <Attachments
+              attachments={draft.attachments}
+              atCapacity={atCapacity}
+              onRemove={(key) =>
+                setDraft((current) => ({
+                  ...current,
+                  attachments: current.attachments.filter(
+                    (attachment) => attachmentKey(attachment) !== key,
+                  ),
+                }))
+              }
+              onCaptureSelection={() => requestCapture("selection")}
+              onCaptureFile={() => requestCapture("file")}
+            />
+
+            <section className="step">
               <div className="step__actions">
                 <button
                   type="button"
                   className="button"
-                  onClick={() => dispatch({ type: "reset" })}
+                  disabled={blocker !== null || busy}
+                  onClick={startSession}
                 >
-                  Start another session
+                  {busy ? "Working…" : "Get my first hint"}
                 </button>
               </div>
+
+              {blocker !== null && <p className="step__hint">{blocker}</p>}
             </section>
-          ) : (
-            <ReportResult
+          </>
+        ) : (
+          <>
+            <Hints
+              hints={conversation.hints}
+              answers={conversation.answers}
               pending={conversation.pending}
-              onReport={reportOutcome}
-              onEnd={endSession}
+              step={conversation.step}
+              finished={finished}
+              onRequest={requestHint}
+              onAsk={askQuestion}
+              onObserve={shareObservation}
             />
-          )}
-        </>
-      )}
+
+            {finished ? (
+              <section className="step">
+                <h2 className="step__title">
+                  {conversation.session?.status === "completed"
+                    ? "Session complete"
+                    : "Session ended"}
+                </h2>
+                <p className="step__hint">
+                  {conversation.hints.length}{" "}
+                  {conversation.hints.length === 1 ? "hint" : "hints"}, highest
+                  level {highestLevel(conversation.hints)} of 8.
+                </p>
+
+                <div className="step__actions">
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() => dispatch({ type: "reset" })}
+                  >
+                    Start another session
+                  </button>
+                </div>
+              </section>
+            ) : (
+              <ReportResult
+                pending={conversation.pending}
+                onReport={reportOutcome}
+                onEnd={endSession}
+              />
+            )}
+          </>
+        )}
+      </div>
 
       <footer className="panel__footer">
         Your code goes only to the Socrates' Duck backend running on this

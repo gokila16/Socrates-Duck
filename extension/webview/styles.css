@@ -20,6 +20,16 @@ body {
   max-width: 44rem;
 }
 
+.panel__view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.panel__view[hidden] {
+  display: none;
+}
+
 .panel__header {
   display: flex;
   flex-direction: column;
@@ -360,4 +370,42 @@ body {
 
 .hint__ask-open {
   margin-top: 8px;
+}
+
+.profile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.profile__area dt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.profile__label {
+  font-weight: 600;
+}
+
+.profile__level {
+  color: var(--vscode-descriptionForeground);
+}
+
+.profile__area dd {
+  margin: 0.2rem 0 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+
+.profile__recommendation {
+  border-left-color: var(--vscode-focusBorder);
+  background-color: var(--vscode-textCodeBlock-background);
+}
+
+.profile__recommendation p {
+  margin: 0.35rem 0 0;
 }

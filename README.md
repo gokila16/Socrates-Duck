@@ -10,10 +10,12 @@ It's like rubber duck debugging, except this duck asks questions back.
 
 - Works with a selection, the active file, or files named in a traceback (only the ones you pick)
 - Gives hints on an eight-step ladder, from a single question up to partial pseudocode
-- **Another hint** tries a new angle, **Stronger hint** goes up one step, and **I feel stuck** jumps to the most direct hints
+- **Another hint** gives one more at the same level, building on the last, then moves up; **Stronger hint** goes up one step now; **I feel stuck** jumps to the most direct hints. The panel shows which level you are on.
+- **I tried it — here's what I saw** lets you note what you found, so the next hint starts from it (your code is not read again)
 - **Ask about this hint** explains a word, function, or step without using up a hint
 - After you edit and rerun your code, **Report result** re-reads your attached code so the next hint sees your changes
 - Checks every hint before you see it, and rewrites any that give the answer away
+- **Your profile** summarises your recent sessions on this machine by debugging skill, and suggests at most one area to work on
 
 It currently focuses on Python, runs entirely on your machine, and uses your own model API key.
 
@@ -81,6 +83,7 @@ If you change the port, set **Socrates' Duck: Backend Url** (`socratesDuck.backe
 - Nothing is sent until you press a button, and only the code you attached.
 - Your code goes to the local backend and, from there, to the model provider you configured. Nowhere else.
 - The backend keeps sessions in memory only. The local database stores counts (hints given, levels reached, outcomes), never code or text.
+- Your profile lives in VS Code's local extension storage and holds only numbers (hints by kind, highest level, reports, questions, duration, your "Did you resolve it?" answer). Export or delete it with **Socrates' Duck: Export Profile** / **Reset Profile**.
 
 ## Development
 

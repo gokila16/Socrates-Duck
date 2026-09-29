@@ -525,8 +525,19 @@ def _code_text(context: CodeContext) -> str:
     return f"{header}\n{numbered}"
 
 
+def _shared_observation(session: Session) -> bool:
+    """Whether they noted what they saw since the last hint, with no outcome."""
+    return bool(session.hints) and any(
+        attempt.outcome is None for attempt in session.attempts_since_last_hint
+    )
+
+
 def _attempt_text(attempt: Attempt) -> str:
-    outcome = attempt.outcome.value if attempt.outcome is not None else "not reported"
+    outcome = (
+        attempt.outcome.value
+        if attempt.outcome is not None
+        else "none (a note on what they checked and saw)"
+    )
     lines = [f"outcome: {outcome}", f"reasoning: {attempt.reasoning}"]
 
     if attempt.code_refreshed:
@@ -599,13 +610,22 @@ def _direction(session: Session, level: int, kind: HintKind) -> str:
         )
     elif level == session.hints[-1].level:
         text = (
-            "They asked for another hint at the same strength. Take a different "
-            "angle from the earlier hints on this rung; do not restate them."
+            "They asked for another hint at the same strength. Build on the last "
+            "hint instead of opening a new line of inquiry: take the next step "
+            "from what it asked them to check, or narrow down where to look. "
+            "Do not restate it."
         )
     else:
         text = (
             "This hint is stronger than the last. Add information the earlier "
             "hints did not give; do not restate them."
+        )
+
+    if _shared_observation(session):
+        text += (
+            " Since the last hint they wrote down what they saw when they "
+            "checked (the latest attempt, with no outcome). Start from that: it "
+            "tells you what they have already looked at and ruled out."
         )
 
     if kind is HintKind.STUCK:

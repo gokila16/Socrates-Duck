@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from domain.models import (
     MAX_HINT_LEVEL,
     MIN_HINT_LEVEL,
+    Hint,
     HintKind,
     Outcome,
     ReasoningProgress,
@@ -133,6 +134,10 @@ STUCK_LEVEL = 6
 
 NO_BUG_CEILING = 3
 
+# "Another hint" gives at most this many hints on one rung before stepping up,
+# so asking again never circles on the same rung.
+MAX_HINTS_PER_RUNG = 2
+
 
 def select_level(
     session: Session,
@@ -155,6 +160,8 @@ def select_level(
         climb = 1
     elif kind is HintKind.NORMAL and _reported_still_stuck(session):
         climb = 0 if _holds_position(session, progress) else 1
+    elif kind is HintKind.NORMAL and _rung_is_used_up(session):
+        climb = 1
 
     return min(max(current + climb, MIN_HINT_LEVEL), ceiling)
 
@@ -177,6 +184,33 @@ def _already_held(session: Session) -> bool:
     between = session.attempts[previous.attempts_seen : last.attempts_seen]
 
     return any(attempt.outcome is Outcome.STILL_STUCK for attempt in between)
+
+
+def _rung_is_used_up(session: Session) -> bool:
+    return _hints_on_current_rung(session) >= MAX_HINTS_PER_RUNG
+
+
+def _hints_on_current_rung(session: Session) -> int:
+    """How many hints in a row sit on the last hint's rung, counting back to a restart."""
+    hints = session.hints
+    count = 0
+
+    for index in range(len(hints) - 1, -1, -1):
+        if hints[index].level != hints[-1].level:
+            break
+
+        count += 1
+
+        if index > 0 and _restarted_between(session, hints[index - 1], hints[index]):
+            break
+
+    return count
+
+
+def _restarted_between(session: Session, earlier: Hint, later: Hint) -> bool:
+    between = session.attempts[earlier.attempts_seen : later.attempts_seen]
+
+    return any(attempt.outcome is Outcome.DIFFERENT_ERROR for attempt in between)
 
 
 def ladder_restarted(session: Session) -> bool:

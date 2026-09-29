@@ -29,7 +29,8 @@ export interface SessionPayload {
 export interface AttemptPayload {
   reasoning: string;
   evidence: string | undefined;
-  outcome: Outcome;
+  /** Absent for a note on what the developer saw, which reports no outcome. */
+  outcome: Outcome | undefined;
   codeContexts: CodeContext[] | undefined;
 }
 

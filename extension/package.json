@@ -24,6 +24,21 @@
       {
         "command": "socratesDuck.startFromSelection",
         "title": "Socrates' Duck: Start from selection"
+      },
+      {
+        "command": "socratesDuck.showProfile",
+        "title": "Show Profile",
+        "category": "Socrates' Duck"
+      },
+      {
+        "command": "socratesDuck.resetProfile",
+        "title": "Reset Profile",
+        "category": "Socrates' Duck"
+      },
+      {
+        "command": "socratesDuck.exportProfile",
+        "title": "Export Profile",
+        "category": "Socrates' Duck"
       }
     ],
     "configuration": {

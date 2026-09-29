@@ -272,6 +272,21 @@ describe("parseEvents", () => {
 });
 
 describe("recordAttempt and completeSession", () => {
+  it("sends a note on what the developer saw with no outcome and no code", async () => {
+    const fake = stubFetch(
+      jsonResponse({ id: "abc", status: "active", hintCount: 2, highestHintLevel: 2 }),
+    );
+
+    await recordAttempt(BASE, "abc123", {
+      reasoning: "The list printed as [] for alan.",
+      evidence: undefined,
+      outcome: undefined,
+      codeContexts: undefined,
+    });
+
+    expect(lastBody(fake)).toEqual({ reasoning: "The list printed as [] for alan." });
+  });
+
   it("sends the outcome with the developer's reasoning", async () => {
     const fake = stubFetch(
       jsonResponse({ id: "abc", status: "active", hintCount: 2, highestHintLevel: 3 }),

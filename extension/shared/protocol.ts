@@ -60,6 +60,9 @@ export interface AnswerView {
 /** Mirrors MAX_QUESTION_CHARS in backend/api/schemas.py. */
 export const MAX_QUESTION_CHARS = 1_000;
 
+/** A note on what the developer saw is sent as reasoning: mirrors MAX_REASONING_CHARS. */
+export const MAX_OBSERVATION_CHARS = 4_000;
+
 /** Session state as the panel needs it. */
 export interface SessionView {
   status: "active" | "completed" | "abandoned";
@@ -67,8 +70,57 @@ export interface SessionView {
   highestHintLevel: number;
 }
 
+/**
+ * The developer's own answer to "Did you resolve the problem?" when a session
+ * ends. "not_asked" is for sessions that ended without the question, such as
+ * the panel being closed. Kept in the local profile only; the backend never sees it.
+ */
+export type Resolution = "yes" | "partially" | "no" | "skipped" | "not_asked";
+
+/** The answers the developer can pick themselves. */
+export type ChosenResolution = Exclude<Resolution, "not_asked">;
+
+/** The debugging skills the profile summarises. */
+export type SkillArea =
+  | "reading_errors"
+  | "localizing_bugs"
+  | "forming_hypotheses"
+  | "testing_assumptions"
+  | "solving_independently";
+
+export type SkillLevel =
+  | "emerging"
+  | "developing"
+  | "independent"
+  | "not_enough_information";
+
+/** One skill area, with the evidence behind its level. */
+export interface AreaView {
+  area: SkillArea;
+  label: string;
+  level: SkillLevel;
+  evidence: string;
+}
+
+/** The single area the profile suggests working on next. */
+export interface RecommendationView {
+  area: SkillArea;
+  label: string;
+  reason: string;
+  evidence: string;
+  tryNext: string;
+}
+
+/** The local profile, as the panel shows it. */
+export interface ProfileView {
+  sessionCount: number;
+  areas: AreaView[];
+  recommendation: RecommendationView | null;
+  notice: string | null;
+}
+
 /** What the panel is waiting for. */
-export type PendingAction = "start" | "hint" | "ask" | "report" | "end";
+export type PendingAction = "start" | "hint" | "ask" | "observe" | "report" | "end";
 
 /** What the backend is doing while a hint is on its way. */
 export type HintStep = "reading" | "writing" | "checking" | "rewording";
@@ -94,13 +146,20 @@ export type WebviewToHost =
     }
   | { type: "requestHint"; kind: HintKind }
   | { type: "askQuestion"; hintNumber: number; question: string }
+  | { type: "shareObservation"; observation: string }
   | {
       type: "reportOutcome";
       outcome: Outcome;
       reasoning: string;
       evidence: string;
     }
-  | { type: "endSession"; status: "completed" | "abandoned"; outcome: Outcome | null };
+  | {
+      type: "endSession";
+      status: "completed" | "abandoned";
+      outcome: Outcome | null;
+      resolution: ChosenResolution;
+    }
+  | { type: "showProfile" };
 
 /** Extension host → webview. */
 export type HostToWebview =
@@ -113,7 +172,8 @@ export type HostToWebview =
   | { type: "answerReceived"; answer: AnswerView }
   | { type: "attemptRecorded"; session: SessionView; hintFollows: boolean }
   | { type: "sessionEnded"; session: SessionView }
-  | { type: "requestFailed"; action: PendingAction; reason: string };
+  | { type: "requestFailed"; action: PendingAction; reason: string }
+  | { type: "profile"; profile: ProfileView; refreshOnly: boolean };
 
 /** Validates a message arriving from the webview before we act on it. */
 export function isWebviewToHost(value: unknown): value is WebviewToHost {
@@ -153,6 +213,12 @@ export function isWebviewToHost(value: unknown): value is WebviewToHost {
         message["question"].trim() !== "" &&
         message["question"].length <= MAX_QUESTION_CHARS
       );
+    case "shareObservation":
+      return (
+        typeof message["observation"] === "string" &&
+        message["observation"].trim() !== "" &&
+        message["observation"].length <= MAX_OBSERVATION_CHARS
+      );
     case "reportOutcome":
       return (
         isOutcome(message["outcome"]) &&
@@ -162,8 +228,11 @@ export function isWebviewToHost(value: unknown): value is WebviewToHost {
     case "endSession":
       return (
         (message["status"] === "completed" || message["status"] === "abandoned") &&
-        (message["outcome"] === null || isOutcome(message["outcome"]))
+        (message["outcome"] === null || isOutcome(message["outcome"])) &&
+        isChosenResolution(message["resolution"])
       );
+    case "showProfile":
+      return true;
     default:
       return false;
   }
@@ -176,6 +245,12 @@ function isHintKind(value: unknown): value is HintKind {
 function isOutcome(value: unknown): value is Outcome {
   return (
     value === "resolved" || value === "still_stuck" || value === "different_error"
+  );
+}
+
+function isChosenResolution(value: unknown): value is ChosenResolution {
+  return (
+    value === "yes" || value === "partially" || value === "no" || value === "skipped"
   );
 }
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import {
+  MAX_OBSERVATION_CHARS,
   MAX_QUESTION_CHARS,
   type AnswerView,
   type HintKind,
@@ -18,6 +19,7 @@ interface HintsProps {
   finished: boolean;
   onRequest: (kind: HintKind) => void;
   onAsk: (hintNumber: number, question: string) => void;
+  onObserve: (observation: string) => void;
 }
 
 /** The top of the ladder. */
@@ -40,18 +42,31 @@ export function Hints({
   finished,
   onRequest,
   onAsk,
+  onObserve,
 }: HintsProps) {
   const busy = pending !== null;
   const [askingAbout, setAskingAbout] = useState<number | null>(null);
   const [question, setQuestion] = useState("");
   const trimmed = question.trim();
 
+  const [observing, setObserving] = useState(false);
+  const [observation, setObservation] = useState("");
+  const observed = observation.trim();
+
   function submitQuestion(hintNumber: number): void {
     onAsk(hintNumber, trimmed);
     setQuestion("");
     setAskingAbout(null);
   }
+
+  function submitObservation(): void {
+    onObserve(observed);
+    setObservation("");
+    setObserving(false);
+  }
+
   const highest = hints.reduce((top, hint) => Math.max(top, hint.level), 0);
+  const current = hints.at(-1)?.level ?? 0;
 
   return (
     <section className="step">
@@ -129,10 +144,58 @@ export function Hints({
                 Ask about this hint
               </button>
             ))}
+
+          {!finished &&
+            index === hints.length - 1 &&
+            (observing ? (
+              <div className="hint__ask">
+                <Field
+                  label="What did you see when you tried it?"
+                  hint="The next hint starts from what you found. Your code is not read again."
+                  placeholder="For example: the list printed as [] for the second student."
+                  value={observation}
+                  rows={2}
+                  onChange={setObservation}
+                />
+                <div className="step__actions">
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={
+                      busy ||
+                      observed === "" ||
+                      observation.length > MAX_OBSERVATION_CHARS
+                    }
+                    onClick={submitObservation}
+                  >
+                    {pending === "observe" ? "Sending…" : "Send and get next hint"}
+                  </button>
+                  <button
+                    type="button"
+                    className="button button--ghost"
+                    onClick={() => setObserving(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="button button--ghost hint__ask-open"
+                disabled={busy}
+                onClick={() => setObserving(true)}
+              >
+                I tried it — here's what I saw
+              </button>
+            ))}
         </article>
       ))}
 
-      {(pending === "hint" || pending === "start" || pending === "ask") && (
+      {(pending === "hint" ||
+        pending === "start" ||
+        pending === "ask" ||
+        pending === "observe") && (
         <p className="notice" aria-live="polite">
           {step === null ? "Thinking…" : STEP_LABELS[step]}
         </p>
@@ -167,11 +230,19 @@ export function Hints({
             </button>
           </div>
 
-          {highest >= TOP_LEVEL && (
+          {highest >= TOP_LEVEL ? (
             <p className="step__hint">
               This is the strongest hint Socrates' Duck gives. The last step is
               yours.
             </p>
+          ) : (
+            current > 0 && (
+              <p className="step__hint">
+                You're on level {current} of {TOP_LEVEL}.{" "}
+                <strong>Another hint</strong> gives one more at this level, then
+                moves up. <strong>Stronger hint</strong> moves up now.
+              </p>
+            )
           )}
         </>
       )}
